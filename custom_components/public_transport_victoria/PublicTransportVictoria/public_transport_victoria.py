@@ -15,7 +15,7 @@ BASE_URL = "https://timetableapi.ptv.vic.gov.au"
 DEPARTURES_PATH = "/v3/departures/route_type/{}/stop/{}/route/{}?direction_id={}&max_results={}"
 DIRECTIONS_PATH = "/v3/directions/route/{}"
 MIN_TIME_BETWEEN_UPDATES = datetime.timedelta(minutes=2)
-MAX_RESULTS = 5
+MAX_RESULTS = 10
 ROUTE_TYPES_PATH = "/v3/route_types"
 ROUTES_PATH = "/v3/routes?route_types={}"
 STOPS_PATH = "/v3/stops/route/{}/route_type/{}"
@@ -134,17 +134,37 @@ class Connector:
         if response is not None and response.status == 200:
             response = await response.json()
             _LOGGER.debug(response)
-            self.departures = []
+            now_utc = datetime.datetime.now(datetime.timezone.utc)
+            # Build list with computed local string and keep parsed UTC for filtering
+            departures_raw = []
             for r in response["departures"]:
-                if r["estimated_departure_utc"] is not None:
-                    r["departure"] = convert_utc_to_local(
-                        r["estimated_departure_utc"], self.hass
-                        )                
-                else:
-                    r["departure"] = convert_utc_to_local(
-                        r["scheduled_departure_utc"], self.hass
-                        )
-                self.departures.append(r)
+                utc_str = r["estimated_departure_utc"] or r["scheduled_departure_utc"]
+                if not utc_str:
+                    continue
+                try:
+                    dep_utc = datetime.datetime.strptime(utc_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+                except Exception:
+                    continue
+                r["_dep_utc"] = dep_utc
+                r["departure"] = convert_utc_to_local(utc_str, self.hass)
+                departures_raw.append(r)
+
+            # Keep only future departures
+            future = [d for d in departures_raw if d["_dep_utc"] > now_utc]
+
+            # De-duplicate by minute to avoid identical consecutive times
+            seen_keys = set()
+            deduped = []
+            for d in future:
+                key = d["_dep_utc"].strftime("%Y-%m-%dT%H:%M")
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                deduped.append(d)
+
+            # Sort and cap to first 5 for UI
+            deduped.sort(key=lambda x: x["_dep_utc"]) 
+            self.departures = deduped[:5]
 
         for departure in self.departures:
             _LOGGER.debug(departure)
