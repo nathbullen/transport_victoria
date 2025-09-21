@@ -8,6 +8,7 @@ from hashlib import sha1
 
 from homeassistant.util import Throttle
 from homeassistant.util.dt import get_time_zone
+ 
 
 
 BASE_URL = "https://timetableapi.ptv.vic.gov.au"
@@ -178,6 +179,15 @@ class Connector:
             normalised = []
             for d in disruptions_raw:
                 try:
+                    # Extract routes with both id and type if available
+                    routes_list = []
+                    for r in d.get("routes", []) if isinstance(d.get("routes"), list) else []:
+                        if isinstance(r, dict):
+                            routes_list.append({
+                                "route_id": r.get("route_id"),
+                                "route_type": r.get("route_type"),
+                            })
+
                     normalised.append({
                         "disruption_id": d.get("disruption_id"),
                         "title": d.get("title"),
@@ -187,16 +197,26 @@ class Connector:
                         "to_date": d.get("to_date") or d.get("to_time"),
                         "last_updated": d.get("last_updated"),
                         "url": d.get("url") or d.get("url_web"),
-                        "routes": [r.get("route_id") for r in d.get("routes", []) if isinstance(r, dict)],
+                        "routes": routes_list,
+                        "severity": d.get("severity") or d.get("severity_level"),
+                        "category": d.get("category") or d.get("disruption_type"),
+                        "stops": [s.get("stop_id") for s in d.get("stops", []) if isinstance(s, dict)],
+                        "from_date_local": _safe_local(d.get("from_date") or d.get("from_time"), self.hass),
+                        "to_date_local": _safe_local(d.get("to_date") or d.get("to_time"), self.hass),
                     })
                 except Exception as err:
                     _LOGGER.debug("Error normalising disruption: %s", err)
 
             # Filter to only disruptions that explicitly reference the configured route
             route_id_str = str(self.route)
+            route_type_str = str(self.route_type)
             filtered = [
                 n for n in normalised
-                if any(str(rid) == route_id_str for rid in n.get("routes", []))
+                if any(
+                    str(r.get("route_id")) == route_id_str and
+                    (r.get("route_type") is None or str(r.get("route_type")) == route_type_str)
+                    for r in n.get("routes", [])
+                )
             ]
 
             if disruption_status == 0:
@@ -212,6 +232,21 @@ class Connector:
                 _LOGGER.debug(disruption)
 
         return self.disruptions_current if disruption_status == 0 else self.disruptions_planned
+
+def _safe_local(utc, hass):
+    """Return both ISO and human local strings for a UTC time if present."""
+    if not utc:
+        return None
+    try:
+        d = datetime.datetime.strptime(utc, "%Y-%m-%dT%H:%M:%SZ")
+        local_tz = get_time_zone(hass.config.time_zone)
+        d = d.replace(tzinfo=datetime.timezone.utc).astimezone(local_tz)
+        return {
+            "iso": d.isoformat(),
+            "human": d.strftime("%Y-%m-%d %I:%M %p"),
+        }
+    except Exception:
+        return {"iso": utc, "human": utc}
 
 def build_URL(id, api_key, request):
     request = request + ('&' if ('?' in request) else '?')

@@ -1,15 +1,19 @@
 """Public Transport Victoria integration."""
 import asyncio
 import logging
+import voluptuous as vol
 
 
+from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_API_KEY, CONF_ID
 from homeassistant.core import HomeAssistant
 
 from .const import (
     CONF_DIRECTION, CONF_DIRECTION_NAME, CONF_ROUTE, CONF_ROUTE_NAME,
-    CONF_ROUTE_TYPE, CONF_ROUTE_TYPE_NAME, CONF_STOP, CONF_STOP_NAME, DOMAIN
+    CONF_ROUTE_TYPE, CONF_ROUTE_TYPE_NAME, CONF_STOP, CONF_STOP_NAME, DOMAIN,
+    OPT_PLANNED_ENABLED, OPT_DEPARTURES_SCAN_MIN, OPT_DISRUPTIONS_SCAN_MIN, OPT_DETAILS_LIMIT,
+    DEFAULT_PLANNED_ENABLED, DEFAULT_DEPARTURES_SCAN_MIN, DEFAULT_DISRUPTIONS_SCAN_MIN, DEFAULT_DETAILS_LIMIT,
 )
 from .PublicTransportVictoria.public_transport_victoria import Connector
 
@@ -18,7 +22,7 @@ from .PublicTransportVictoria.public_transport_victoria import Connector
 _LOGGER = logging.getLogger(__name__)
 
 
-PLATFORMS = ["sensor"]
+PLATFORMS = ["sensor", "binary_sensor"]
 
 
 async def async_setup(hass: HomeAssistant, config: dict):
@@ -51,6 +55,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+    # Reload entities when options are updated
+    async def _update_listener(hass: HomeAssistant, updated_entry: ConfigEntry):
+        await hass.config_entries.async_reload(updated_entry.entry_id)
+
+    entry.async_on_unload(entry.add_update_listener(_update_listener))
+
     return True
 
 
@@ -68,3 +78,28 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
         hass.data[DOMAIN].pop(entry.entry_id)
 
     return unload_ok
+
+
+class OptionsFlowHandler(config_entries.OptionsFlow):
+    """Handle Public Transport Victoria options."""
+
+    def __init__(self, config_entry: ConfigEntry):
+        self.config_entry = config_entry
+
+    async def async_step_init(self, user_input=None):
+        if user_input is not None:
+            return self.async_create_entry(title="Options", data=user_input)
+
+        options = self.config_entry.options
+        schema = vol.Schema({
+            vol.Optional(OPT_PLANNED_ENABLED, default=options.get(OPT_PLANNED_ENABLED, DEFAULT_PLANNED_ENABLED)): bool,
+            vol.Optional(OPT_DEPARTURES_SCAN_MIN, default=options.get(OPT_DEPARTURES_SCAN_MIN, DEFAULT_DEPARTURES_SCAN_MIN)): int,
+            vol.Optional(OPT_DISRUPTIONS_SCAN_MIN, default=options.get(OPT_DISRUPTIONS_SCAN_MIN, DEFAULT_DISRUPTIONS_SCAN_MIN)): int,
+            vol.Optional(OPT_DETAILS_LIMIT, default=options.get(OPT_DETAILS_LIMIT, DEFAULT_DETAILS_LIMIT)): int,
+        })
+
+        return self.async_show_form(step_id="init", data_schema=schema)
+
+
+async def async_get_options_flow(config_entry: ConfigEntry):
+    return OptionsFlowHandler(config_entry)

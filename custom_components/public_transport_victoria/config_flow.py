@@ -17,6 +17,16 @@ from .const import (
     CONF_STOP_NAME, 
     DOMAIN
 )
+from .const import (
+    OPT_PLANNED_ENABLED,
+    OPT_DEPARTURES_SCAN_MIN,
+    OPT_DISRUPTIONS_SCAN_MIN,
+    OPT_DETAILS_LIMIT,
+    DEFAULT_PLANNED_ENABLED,
+    DEFAULT_DEPARTURES_SCAN_MIN,
+    DEFAULT_DISRUPTIONS_SCAN_MIN,
+    DEFAULT_DETAILS_LIMIT,
+)
 from .PublicTransportVictoria.public_transport_victoria import Connector
 
 _LOGGER = logging.getLogger(__name__)
@@ -28,6 +38,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     CONNECTION_CLASS = config_entries.CONN_CLASS_CLOUD_POLL
+
 
     async def async_step_user(self, user_input=None):
         """Handle the initial step."""
