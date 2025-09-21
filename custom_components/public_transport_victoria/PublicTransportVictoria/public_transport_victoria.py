@@ -192,10 +192,17 @@ class Connector:
                 except Exception as err:
                     _LOGGER.debug("Error normalising disruption: %s", err)
 
+            # Filter to only disruptions that explicitly reference the configured route
+            route_id_str = str(self.route)
+            filtered = [
+                n for n in normalised
+                if any(str(rid) == route_id_str for rid in n.get("routes", []))
+            ]
+
             if disruption_status == 0:
-                self.disruptions_current = normalised
+                self.disruptions_current = filtered
             else:
-                self.disruptions_planned = normalised
+                self.disruptions_planned = filtered
 
         if disruption_status == 0:
             for disruption in self.disruptions_current:
