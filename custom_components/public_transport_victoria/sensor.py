@@ -146,7 +146,9 @@ class PublicTransportVictoriaDisruptionsCountSensor(CoordinatorEntity, Entity):
 
     @property
     def state(self):
-        dis = (self.coordinator.data or {}).get("disruptions_current" if self._current else (self.coordinator.data or {}).get("disruptions_planned"))
+        data = self.coordinator.data or {}
+        key = "disruptions_current" if self._current else "disruptions_planned"
+        dis = data.get(key)
         return len(dis or [])
 
     @property
@@ -187,8 +189,11 @@ class PublicTransportVictoriaDisruptionsDetailSensor(CoordinatorEntity, Entity):
     @property
     def state(self):
         # A brief state: first disruption title, else 'No disruptions'
-        if self.coordinator.data and len(self.coordinator.data) > 0:
-            return self.coordinator.data[0].get("title") or "Disruption"
+        data = self.coordinator.data or {}
+        key = "disruptions_current" if self._current else "disruptions_planned"
+        dis = data.get(key) or []
+        if len(dis) > 0:
+            return dis[0].get("title") or "Disruption"
         return "No disruptions"
 
     @property
@@ -202,12 +207,14 @@ class PublicTransportVictoriaDisruptionsDetailSensor(CoordinatorEntity, Entity):
 
     @property
     def extra_state_attributes(self):
-        dis = (self.coordinator.data or {}).get("disruptions_current" if self._current else (self.coordinator.data or {}).get("disruptions_planned")) or []
+        data = self.coordinator.data or {}
+        key = "disruptions_current" if self._current else "disruptions_planned"
+        dis = data.get(key) or []
         disruptions = dis[: self._details_limit]
         attr = {
             ATTR_ATTRIBUTION: ATTRIBUTION,
             "disruptions": disruptions,
-            "total_disruptions": len(self.coordinator.data or []),
+            "total_disruptions": len(dis),
         }
         return attr
 
