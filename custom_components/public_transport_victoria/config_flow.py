@@ -225,3 +225,28 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 class CannotConnect(exceptions.HomeAssistantError):
     """Error to indicate we cannot connect."""
+
+
+class OptionsFlowHandler(config_entries.OptionsFlow):
+    """Handle Public Transport Victoria options."""
+
+    def __init__(self, config_entry: config_entries.ConfigEntry):
+        self.config_entry = config_entry
+
+    async def async_step_init(self, user_input=None):
+        if user_input is not None:
+            return self.async_create_entry(title="Options", data=user_input)
+
+        options = self.config_entry.options
+        schema = vol.Schema({
+            vol.Optional(OPT_PLANNED_ENABLED, default=options.get(OPT_PLANNED_ENABLED, DEFAULT_PLANNED_ENABLED)): bool,
+            vol.Optional(OPT_DEPARTURES_SCAN_MIN, default=options.get(OPT_DEPARTURES_SCAN_MIN, DEFAULT_DEPARTURES_SCAN_MIN)): int,
+            vol.Optional(OPT_DISRUPTIONS_SCAN_MIN, default=options.get(OPT_DISRUPTIONS_SCAN_MIN, DEFAULT_DISRUPTIONS_SCAN_MIN)): int,
+            vol.Optional(OPT_DETAILS_LIMIT, default=options.get(OPT_DETAILS_LIMIT, DEFAULT_DETAILS_LIMIT)): int,
+        })
+
+        return self.async_show_form(step_id="init", data_schema=schema)
+
+
+async def async_get_options_flow(config_entry: config_entries.ConfigEntry):
+    return OptionsFlowHandler(config_entry)
