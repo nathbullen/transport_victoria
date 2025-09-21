@@ -18,6 +18,7 @@ MAX_RESULTS = 5
 ROUTE_TYPES_PATH = "/v3/route_types"
 ROUTES_PATH = "/v3/routes?route_types={}"
 STOPS_PATH = "/v3/stops/route/{}/route_type/{}"
+DISRUPTIONS_PATH = "/v3/disruptions?route_ids={}&route_types={}&disruption_status={}"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -41,6 +42,8 @@ class Connector:
         self.route_name = route_name
         self.direction_name = direction_name
         self.stop_name = stop_name
+        self.disruptions_current = []
+        self.disruptions_planned = []
 
     async def _init(self):
         """Async Init Public Transport Victoria connector."""
@@ -144,6 +147,64 @@ class Connector:
 
         for departure in self.departures:
             _LOGGER.debug(departure)
+
+    async def async_update_disruptions(self, disruption_status: int):
+        """Update disruptions for the configured route.
+
+        disruption_status: 0 = current, 1 = planned
+        """
+        # Build disruptions query filtering to the configured route and type
+        disruptions_path = DISRUPTIONS_PATH.format(self.route, self.route_type, disruption_status)
+        url = build_URL(self.id, self.api_key, disruptions_path)
+
+        async with aiohttp.ClientSession() as session:
+            response = await session.get(url)
+
+        if response is not None and response.status == 200:
+            response = await response.json()
+            _LOGGER.debug(response)
+
+            # Normalise disruptions list from possible response shapes
+            disruptions_raw = []
+            if isinstance(response.get("disruptions"), list):
+                disruptions_raw = response.get("disruptions", [])
+            elif isinstance(response.get("disruptions"), dict):
+                # Combine all lists under disruptions dict
+                for value in response.get("disruptions", {}).values():
+                    if isinstance(value, list):
+                        disruptions_raw.extend(value)
+
+            # Store a trimmed disruption object for attributes
+            normalised = []
+            for d in disruptions_raw:
+                try:
+                    normalised.append({
+                        "disruption_id": d.get("disruption_id"),
+                        "title": d.get("title"),
+                        "description": d.get("description"),
+                        "disruption_status": d.get("disruption_status"),
+                        "from_date": d.get("from_date") or d.get("from_time"),
+                        "to_date": d.get("to_date") or d.get("to_time"),
+                        "last_updated": d.get("last_updated"),
+                        "url": d.get("url") or d.get("url_web"),
+                        "routes": [r.get("route_id") for r in d.get("routes", []) if isinstance(r, dict)],
+                    })
+                except Exception as err:
+                    _LOGGER.debug("Error normalising disruption: %s", err)
+
+            if disruption_status == 0:
+                self.disruptions_current = normalised
+            else:
+                self.disruptions_planned = normalised
+
+        if disruption_status == 0:
+            for disruption in self.disruptions_current:
+                _LOGGER.debug(disruption)
+        else:
+            for disruption in self.disruptions_planned:
+                _LOGGER.debug(disruption)
+
+        return self.disruptions_current if disruption_status == 0 else self.disruptions_planned
 
 def build_URL(id, api_key, request):
     request = request + ('&' if ('?' in request) else '?')
