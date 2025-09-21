@@ -13,21 +13,21 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
     """Set up binary sensors for Public Transport Victoria from a config entry."""
-    connector = hass.data[DOMAIN][config_entry.entry_id]
+    entry_data = hass.data[DOMAIN][config_entry.entry_id]
+    connector = entry_data["connector"]
 
     # Reuse the current disruptions coordinator from sensors if available
     # If not available, we simply won't create the binary sensor here.
     # For simplicity, rely on the count/detail sensors' coordinator to exist.
     # Users who disable planned sensors still have current coordinator.
-    from .sensor import PublicTransportVictoriaDisruptionsCoordinator
+    from .sensor import PublicTransportVictoriaGlobalCoordinator
 
-    try:
-        # Create a lightweight coordinator with default 15 minute refresh if needed
-        coordinator = PublicTransportVictoriaDisruptionsCoordinator(hass, connector, 0, 15)
-        await coordinator.async_config_entry_first_refresh()
-        async_add_entities([PTVCurrentDisruptionsBinarySensor(coordinator)])
-    except Exception as err:
-        _LOGGER.debug("Skipping binary sensor setup: %s", err)
+    if "coordinator" not in entry_data:
+        entry_data["coordinator"] = PublicTransportVictoriaGlobalCoordinator(hass, connector)
+    coordinator = entry_data["coordinator"]
+
+    await coordinator.async_config_entry_first_refresh()
+    async_add_entities([PTVCurrentDisruptionsBinarySensor(coordinator)])
 
 
 class PTVCurrentDisruptionsBinarySensor(CoordinatorEntity, BinarySensorEntity):
@@ -38,7 +38,8 @@ class PTVCurrentDisruptionsBinarySensor(CoordinatorEntity, BinarySensorEntity):
 
     @property
     def is_on(self):
-        return bool(self.coordinator.data)
+        dis = (self.coordinator.data or {}).get("disruptions_current") or []
+        return bool(dis)
 
     @property
     def name(self):

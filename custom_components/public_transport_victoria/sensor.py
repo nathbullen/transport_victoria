@@ -9,89 +9,67 @@ from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
 )
 from homeassistant.const import ATTR_ATTRIBUTION
-from .const import ATTRIBUTION, DOMAIN, DEFAULT_DETAILS_LIMIT, DEFAULT_DISRUPTIONS_SCAN_MIN, DEFAULT_DEPARTURES_SCAN_MIN, OPT_DETAILS_LIMIT, OPT_DISRUPTIONS_SCAN_MIN, OPT_PLANNED_ENABLED, OPT_DEPARTURES_SCAN_MIN
+from .const import ATTRIBUTION, DOMAIN, DEFAULT_DETAILS_LIMIT
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 _LOGGER = logging.getLogger(__name__)
-SCAN_INTERVAL = datetime.timedelta(minutes=DEFAULT_DEPARTURES_SCAN_MIN)
+SCAN_INTERVAL = datetime.timedelta(minutes=1)
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
     """Add sensors for passed config_entry in HA."""
-    connector = hass.data[DOMAIN][config_entry.entry_id]
+    entry_data = hass.data[DOMAIN][config_entry.entry_id]
+    connector = entry_data["connector"]
 
     # Read options, falling back to defaults
-    options = config_entry.options or {}
-    dep_scan = options.get(OPT_DEPARTURES_SCAN_MIN, DEFAULT_DEPARTURES_SCAN_MIN)
-    dis_scan = options.get(OPT_DISRUPTIONS_SCAN_MIN, DEFAULT_DISRUPTIONS_SCAN_MIN)
-    details_limit = options.get(OPT_DETAILS_LIMIT, DEFAULT_DETAILS_LIMIT)
-    planned_enabled = options.get(OPT_PLANNED_ENABLED, True)
+    details_limit = DEFAULT_DETAILS_LIMIT
+    planned_enabled = True
 
     # Create the coordinator to manage polling
-    coordinator = PublicTransportVictoriaDataUpdateCoordinator(hass, connector, dep_scan)
-    disruptions_current_coordinator = PublicTransportVictoriaDisruptionsCoordinator(hass, connector, 0, dis_scan)
-    disruptions_planned_coordinator = PublicTransportVictoriaDisruptionsCoordinator(hass, connector, 1, dis_scan)
+    # One global coordinator that updates all data once per minute
+    if "coordinator" not in entry_data:
+        entry_data["coordinator"] = PublicTransportVictoriaGlobalCoordinator(hass, connector)
+    coordinator = entry_data["coordinator"]
 
     # Fetch initial data
     await coordinator.async_config_entry_first_refresh()
-    await disruptions_current_coordinator.async_config_entry_first_refresh()
-    await disruptions_planned_coordinator.async_config_entry_first_refresh()
 
     # Create sensors for the first 5 departures
     new_devices = [PublicTransportVictoriaSensor(coordinator, i) for i in range(5)]
 
     # Create disruptions sensors
-    new_devices.append(PublicTransportVictoriaDisruptionsCountSensor(disruptions_current_coordinator, current=True))
-    new_devices.append(PublicTransportVictoriaDisruptionsDetailSensor(disruptions_current_coordinator, current=True, details_limit=details_limit))
+    new_devices.append(PublicTransportVictoriaDisruptionsCountSensor(coordinator, current=True))
+    new_devices.append(PublicTransportVictoriaDisruptionsDetailSensor(coordinator, current=True, details_limit=details_limit))
     if planned_enabled:
-        new_devices.append(PublicTransportVictoriaDisruptionsCountSensor(disruptions_planned_coordinator, current=False))
-        new_devices.append(PublicTransportVictoriaDisruptionsDetailSensor(disruptions_planned_coordinator, current=False, details_limit=details_limit))
+        new_devices.append(PublicTransportVictoriaDisruptionsCountSensor(coordinator, current=False))
+        new_devices.append(PublicTransportVictoriaDisruptionsDetailSensor(coordinator, current=False, details_limit=details_limit))
 
     async_add_entities(new_devices)
 
 
-class PublicTransportVictoriaDataUpdateCoordinator(DataUpdateCoordinator):
+class PublicTransportVictoriaGlobalCoordinator(DataUpdateCoordinator):
     """Class to manage fetching Public Transport Victoria data."""
 
-    def __init__(self, hass, connector, scan_minutes: int):
+    def __init__(self, hass, connector):
         """Initialize the coordinator."""
         self.connector = connector
         super().__init__(
             hass,
             _LOGGER,
-            name="Public Transport Victoria",
-            update_interval=datetime.timedelta(minutes=scan_minutes),
+            name="Public Transport Victoria (Global)",
+            update_interval=datetime.timedelta(minutes=1),
         )
 
     async def _async_update_data(self):
-        """Fetch data from Public Transport Victoria."""
-        _LOGGER.debug("Fetching new data from Public Transport Victoria API.")
-        await self.connector.async_update()
-        return self.connector.departures  # Return the latest data
-
-
-class PublicTransportVictoriaDisruptionsCoordinator(DataUpdateCoordinator):
-    """Class to manage fetching Public Transport Victoria disruptions."""
-
-    def __init__(self, hass, connector, disruption_status: int, scan_minutes: int):
-        """Initialize the disruptions coordinator.
-
-        disruption_status: 0 = current, 1 = planned
-        """
-        self.connector = connector
-        self.disruption_status = disruption_status
-        super().__init__(
-            hass,
-            _LOGGER,
-            name="Public Transport Victoria Disruptions ({})".format("current" if disruption_status == 0 else "planned"),
-            update_interval=datetime.timedelta(minutes=scan_minutes),
-        )
-
-    async def _async_update_data(self):
-        """Fetch disruptions from Public Transport Victoria."""
-        _LOGGER.debug("Fetching disruptions from Public Transport Victoria API.")
-        data = await self.connector.async_update_disruptions(self.disruption_status)
-        return data
+        """Fetch all data from Public Transport Victoria."""
+        _LOGGER.debug("Fetching all data from Public Transport Victoria API.")
+        await self.connector.async_update_all()
+        # Return a bundle used by all sensors
+        return {
+            "departures": self.connector.departures,
+            "disruptions_current": self.connector.disruptions_current,
+            "disruptions_planned": self.connector.disruptions_planned,
+        }
 
 
 class PublicTransportVictoriaSensor(CoordinatorEntity, Entity):
@@ -106,8 +84,9 @@ class PublicTransportVictoriaSensor(CoordinatorEntity, Entity):
     @property
     def state(self):
         """Return the state of the sensor."""
-        if len(self.coordinator.data) > self._number:
-            return self.coordinator.data[self._number].get("departure", "No data")
+        deps = (self.coordinator.data or {}).get("departures", [])
+        if len(deps) > self._number:
+            return deps[self._number].get("departure", "No data")
         return "No data"
 
     @property
@@ -133,8 +112,9 @@ class PublicTransportVictoriaSensor(CoordinatorEntity, Entity):
     @property
     def extra_state_attributes(self):
         """Return the state attributes of the sensor."""
-        if len(self.coordinator.data) > self._number:
-            attr = self.coordinator.data[self._number]
+        deps = (self.coordinator.data or {}).get("departures", [])
+        if len(deps) > self._number:
+            attr = deps[self._number]
             attr[ATTR_ATTRIBUTION] = ATTRIBUTION
             return attr
         return {}
@@ -166,7 +146,8 @@ class PublicTransportVictoriaDisruptionsCountSensor(CoordinatorEntity, Entity):
 
     @property
     def state(self):
-        return len(self.coordinator.data) if self.coordinator.data is not None else 0
+        dis = (self.coordinator.data or {}).get("disruptions_current" if self._current else (self.coordinator.data or {}).get("disruptions_planned"))
+        return len(dis or [])
 
     @property
     def name(self):
@@ -221,7 +202,8 @@ class PublicTransportVictoriaDisruptionsDetailSensor(CoordinatorEntity, Entity):
 
     @property
     def extra_state_attributes(self):
-        disruptions = (self.coordinator.data or [])[: self._details_limit]
+        dis = (self.coordinator.data or {}).get("disruptions_current" if self._current else (self.coordinator.data or {}).get("disruptions_planned")) or []
+        disruptions = dis[: self._details_limit]
         attr = {
             ATTR_ATTRIBUTION: ATTRIBUTION,
             "disruptions": disruptions,

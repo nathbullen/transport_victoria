@@ -6,7 +6,6 @@ import hmac
 import logging
 from hashlib import sha1
 
-from homeassistant.util import Throttle
 from homeassistant.util.dt import get_time_zone
  
 
@@ -14,7 +13,6 @@ from homeassistant.util.dt import get_time_zone
 BASE_URL = "https://timetableapi.ptv.vic.gov.au"
 DEPARTURES_PATH = "/v3/departures/route_type/{}/stop/{}/route/{}?direction_id={}&max_results={}"
 DIRECTIONS_PATH = "/v3/directions/route/{}"
-MIN_TIME_BETWEEN_UPDATES = datetime.timedelta(minutes=2)
 MAX_RESULTS = 10
 ROUTE_TYPES_PATH = "/v3/route_types"
 ROUTES_PATH = "/v3/routes?route_types={}"
@@ -123,7 +121,6 @@ class Connector:
 
             return stops
 
-    @Throttle(MIN_TIME_BETWEEN_UPDATES)
     async def async_update(self):
         """Update the departure information."""
         url = build_URL(self.id, self.api_key, self.departures_path)
@@ -227,6 +224,25 @@ class Connector:
                 except Exception as err:
                     _LOGGER.debug("Error normalising disruption: %s", err)
 
+            # Exclude unwanted disruptions by title (case-insensitive)
+            # Improved exclusion: match groups of keywords in title or description
+            carpark_groups = [
+                ["temporary", "temporarily"],
+                ["car park", "carpark"],
+                ["closure", "closures", "closed"],
+            ]
+            pedestrian_groups = [
+                ["pedestrian"],
+                ["access"],
+                ["change", "changes", "changed"],
+            ]
+
+            def _should_exclude(n):
+                text = f"{n.get('title') or ''} {n.get('description') or ''}"
+                return _text_matches_all_groups(text, carpark_groups) or _text_matches_all_groups(text, pedestrian_groups)
+
+            normalised = [n for n in normalised if not _should_exclude(n)]
+
             # Filter to only disruptions that explicitly reference the configured route
             route_id_str = str(self.route)
             route_type_str = str(self.route_type)
@@ -253,6 +269,12 @@ class Connector:
 
         return self.disruptions_current if disruption_status == 0 else self.disruptions_planned
 
+    async def async_update_all(self):
+        """Update departures and both disruption sets together."""
+        await self.async_update()
+        await self.async_update_disruptions(0)
+        await self.async_update_disruptions(1)
+
 def _safe_local(utc, hass):
     """Return both ISO and human local strings for a UTC time if present."""
     if not utc:
@@ -267,6 +289,16 @@ def _safe_local(utc, hass):
         }
     except Exception:
         return {"iso": utc, "human": utc}
+
+def _text_matches_all_groups(text, groups):
+    """Return True if for every group, at least one phrase appears in text."""
+    if not text:
+        return False
+    hay = text.lower()
+    for group in groups:
+        if not any(phrase in hay for phrase in group):
+            return False
+    return True
 
 def build_URL(id, api_key, request):
     request = request + ('&' if ('?' in request) else '?')
