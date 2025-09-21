@@ -2,11 +2,14 @@
 
 The `public transport victoria` sensor platform uses the [Public Transport Victoria (PTV)](https://www.ptv.vic.gov.au/) as a source for public transport departure times for Victoria, Australia.
 
+## Thanks
+This is a branch of the original PTV integration by Bremor, updated to include additional disruption sensors and some logic guards around updating the sensor times.
+
 ## Installation (There are two methods, with HACS or manual)
 
 [![hacs][hacsbadge]][hacs]
 
-Install via HACS (default store) or install manually by copying the files in a new 'custom_components/public_transport_victoria' directory.
+Install via HACS (add this as a custom integration) or install manually by copying the files in a new 'custom_components/public_transport_victoria' directory.
 
 ## Prerequisites
 
