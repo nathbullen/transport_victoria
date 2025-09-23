@@ -319,14 +319,15 @@ def _clean_title(title, route_name):
     rn = (route_name or "").strip()
     if not rn:
         return t
-    # Case-insensitive check starting at the very beginning
+    # Case-insensitive: if the text starts with the route name and the pre-colon
+    # segment mentions 'line' or 'lines', strip everything up to and including ':'
     lower = t.lower()
-    prefix1 = f"{rn.lower()} line:"
-    prefix2 = f"{rn.lower()} lines:"
-    if lower.startswith(prefix1):
-        return t[len(prefix1):].lstrip()
-    if lower.startswith(prefix2):
-        return t[len(prefix2):].lstrip()
+    rn_lower = rn.lower()
+    colon = lower.find(":")
+    if colon != -1:
+        prefix = lower[:colon].strip()
+        if prefix.startswith(rn_lower) and (" line" in prefix or " lines" in prefix):
+            return t[colon+1:].lstrip()
     return t
 
 def _relative_period(from_local, to_local, hass):
@@ -347,7 +348,7 @@ def _relative_period(from_local, to_local, hass):
         start = _label(from_local)
         end = _label(to_local)
         if start and end:
-            return f"from {start} to {end}"
+            return f"from {start} until {end}"
         if start:
             return f"from {start}"
         if end:

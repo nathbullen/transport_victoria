@@ -199,8 +199,13 @@ class PublicTransportVictoriaDisruptionsDetailSensor(CoordinatorEntity, Entity):
         dis = data.get(key) or []
         if len(dis) > 0:
             if self._simplified:
+                # Use cleaned title and prefer appending only the 'until ...' tail if present
                 title = dis[0].get("title_clean") or dis[0].get("title") or "Disruption"
-                rel = dis[0].get("period_relative")
+                rel = dis[0].get("period_relative") or ""
+                if rel.startswith("from ") and " until " in rel:
+                    # Keep title as-is, append only the 'until ...' part
+                    until_part = rel.split(" until ", 1)[1]
+                    return f"{title} until {until_part}"
                 return f"{title} — {rel}" if rel else title
             return dis[0].get("title") or "Disruption"
         return "No disruptions"
