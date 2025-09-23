@@ -205,21 +205,32 @@ class Connector:
                                 "route_type": r.get("route_type"),
                             })
 
+                    title = d.get("title")
+                    cleaned_title = _clean_title(title, self.route_name)
+
+                    from_src = d.get("from_date") or d.get("from_time")
+                    to_src = d.get("to_date") or d.get("to_time")
+                    from_local = _safe_local(from_src, self.hass)
+                    to_local = _safe_local(to_src, self.hass)
+                    period_relative = _relative_period(from_local, to_local, self.hass)
+
                     normalised.append({
                         "disruption_id": d.get("disruption_id"),
-                        "title": d.get("title"),
+                        "title": title,
+                        "title_clean": cleaned_title,
                         "description": d.get("description"),
                         "disruption_status": d.get("disruption_status"),
-                        "from_date": d.get("from_date") or d.get("from_time"),
-                        "to_date": d.get("to_date") or d.get("to_time"),
+                        "from_date": from_src,
+                        "to_date": to_src,
                         "last_updated": d.get("last_updated"),
                         "url": d.get("url") or d.get("url_web"),
                         "routes": routes_list,
                         "severity": d.get("severity") or d.get("severity_level"),
                         "category": d.get("category") or d.get("disruption_type"),
                         "stops": [s.get("stop_id") for s in d.get("stops", []) if isinstance(s, dict)],
-                        "from_date_local": _safe_local(d.get("from_date") or d.get("from_time"), self.hass),
-                        "to_date_local": _safe_local(d.get("to_date") or d.get("to_time"), self.hass),
+                        "from_date_local": from_local,
+                        "to_date_local": to_local,
+                        "period_relative": period_relative,
                     })
                 except Exception as err:
                     _LOGGER.debug("Error normalising disruption: %s", err)
@@ -299,6 +310,51 @@ def _text_matches_all_groups(text, groups):
         if not any(phrase in hay for phrase in group):
             return False
     return True
+
+def _clean_title(title, route_name):
+    """Remove leading '<route_name...> lines:' prefix if present."""
+    if not title:
+        return title
+    t = title.strip()
+    rn = (route_name or "").strip()
+    if not rn:
+        return t
+    # Case-insensitive check starting at the very beginning
+    lower = t.lower()
+    prefix1 = f"{rn.lower()} line:"
+    prefix2 = f"{rn.lower()} lines:"
+    if lower.startswith(prefix1):
+        return t[len(prefix1):].lstrip()
+    if lower.startswith(prefix2):
+        return t[len(prefix2):].lstrip()
+    return t
+
+def _relative_period(from_local, to_local, hass):
+    """Build a human-friendly relative period string using local ISO datetimes."""
+    try:
+        today = datetime.datetime.now(get_time_zone(hass.config.time_zone)).date()
+        def _label(local_map):
+            if not local_map or not local_map.get("iso"):
+                return None
+            dt = datetime.datetime.fromisoformat(local_map["iso"]).astimezone(get_time_zone(hass.config.time_zone))
+            d = dt.date()
+            if d == today:
+                return "today"
+            if d == today + datetime.timedelta(days=1):
+                return "tomorrow"
+            return dt.strftime("%A %d %B")
+
+        start = _label(from_local)
+        end = _label(to_local)
+        if start and end:
+            return f"from {start} to {end}"
+        if start:
+            return f"from {start}"
+        if end:
+            return f"until {end}"
+    except Exception:
+        return None
+    return None
 
 def build_URL(id, api_key, request):
     request = request + ('&' if ('?' in request) else '?')

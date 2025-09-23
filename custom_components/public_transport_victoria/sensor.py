@@ -38,11 +38,15 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     new_devices = [PublicTransportVictoriaSensor(coordinator, i) for i in range(5)]
 
     # Create disruptions sensors
+    # Current
     new_devices.append(PublicTransportVictoriaDisruptionsCountSensor(coordinator, current=True))
-    new_devices.append(PublicTransportVictoriaDisruptionsDetailSensor(coordinator, current=True, details_limit=details_limit))
+    new_devices.append(PublicTransportVictoriaDisruptionsDetailSensor(coordinator, current=True, details_limit=details_limit, simplified=False))
+    new_devices.append(PublicTransportVictoriaDisruptionsDetailSensor(coordinator, current=True, details_limit=details_limit, simplified=True))
+    # Planned
     if planned_enabled:
         new_devices.append(PublicTransportVictoriaDisruptionsCountSensor(coordinator, current=False))
-        new_devices.append(PublicTransportVictoriaDisruptionsDetailSensor(coordinator, current=False, details_limit=details_limit))
+        new_devices.append(PublicTransportVictoriaDisruptionsDetailSensor(coordinator, current=False, details_limit=details_limit, simplified=False))
+        new_devices.append(PublicTransportVictoriaDisruptionsDetailSensor(coordinator, current=False, details_limit=details_limit, simplified=True))
 
     async_add_entities(new_devices)
 
@@ -181,10 +185,11 @@ class PublicTransportVictoriaDisruptionsCountSensor(CoordinatorEntity, Entity):
 class PublicTransportVictoriaDisruptionsDetailSensor(CoordinatorEntity, Entity):
     """Representation of a disruptions detail sensor."""
 
-    def __init__(self, coordinator, current: bool, details_limit: int):
+    def __init__(self, coordinator, current: bool, details_limit: int, simplified: bool = False):
         super().__init__(coordinator)
         self._current = current
         self._details_limit = details_limit
+        self._simplified = simplified
 
     @property
     def state(self):
@@ -193,17 +198,25 @@ class PublicTransportVictoriaDisruptionsDetailSensor(CoordinatorEntity, Entity):
         key = "disruptions_current" if self._current else "disruptions_planned"
         dis = data.get(key) or []
         if len(dis) > 0:
+            if self._simplified:
+                title = dis[0].get("title_clean") or dis[0].get("title") or "Disruption"
+                rel = dis[0].get("period_relative")
+                return f"{title} — {rel}" if rel else title
             return dis[0].get("title") or "Disruption"
         return "No disruptions"
 
     @property
     def name(self):
-        label = "current disruption details" if self._current else "planned disruption details"
+        base = "current" if self._current else "planned"
+        label = f"{base} disruption details"
+        if self._simplified:
+            label += " - simplified"
         return "{} line {}".format(self.coordinator.connector.route_name, label)
 
     @property
     def unique_id(self):
-        return "{}-{}-{}".format(self.coordinator.connector.route, "current" if self._current else "planned", "disruptions-detail")
+        suffix = "-simplified" if self._simplified else ""
+        return "{}-{}-{}{}".format(self.coordinator.connector.route, "current" if self._current else "planned", "disruptions-detail", suffix)
 
     @property
     def extra_state_attributes(self):
@@ -215,6 +228,8 @@ class PublicTransportVictoriaDisruptionsDetailSensor(CoordinatorEntity, Entity):
             ATTR_ATTRIBUTION: ATTRIBUTION,
             "disruptions": disruptions,
             "total_disruptions": len(dis),
+            "period_relative": disruptions[0].get("period_relative") if disruptions else None,
+            "simplified": self._simplified,
         }
         return attr
 
