@@ -266,6 +266,16 @@ class Connector:
                 )
             ]
 
+            # For current disruptions (status=0), filter out those that ended more than 2 hours ago
+            if disruption_status == 0:
+                now_utc = datetime.datetime.now(datetime.timezone.utc)
+                cutoff = now_utc - datetime.timedelta(hours=2)
+                filtered = [
+                    n for n in filtered
+                    if not n.get("to_date") or  # Keep if no end date (unplanned)
+                    _parse_utc(n.get("to_date")) > cutoff  # Keep if ended within last 2 hours
+                ]
+
             if disruption_status == 0:
                 self.disruptions_current = filtered
             else:
@@ -279,6 +289,15 @@ class Connector:
                 _LOGGER.debug(disruption)
 
         return self.disruptions_current if disruption_status == 0 else self.disruptions_planned
+
+def _parse_utc(utc_str):
+    """Parse UTC string to datetime, return epoch if parsing fails."""
+    if not utc_str:
+        return datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)
+    try:
+        return datetime.datetime.strptime(utc_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+    except Exception:
+        return datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)
 
     async def async_update_all(self):
         """Update departures and both disruption sets together."""
