@@ -290,6 +290,12 @@ class Connector:
 
         return self.disruptions_current if disruption_status == 0 else self.disruptions_planned
 
+    async def async_update_all(self):
+        """Update departures and both disruption sets together."""
+        await self.async_update()
+        await self.async_update_disruptions(0)
+        await self.async_update_disruptions(1)
+
 def _parse_utc(utc_str):
     """Parse UTC string to datetime, return epoch if parsing fails."""
     if not utc_str:
@@ -298,12 +304,6 @@ def _parse_utc(utc_str):
         return datetime.datetime.strptime(utc_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
     except Exception:
         return datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)
-
-    async def async_update_all(self):
-        """Update departures and both disruption sets together."""
-        await self.async_update()
-        await self.async_update_disruptions(0)
-        await self.async_update_disruptions(1)
 
 def _safe_local(utc, hass):
     """Return both ISO and human local strings for a UTC time if present."""
