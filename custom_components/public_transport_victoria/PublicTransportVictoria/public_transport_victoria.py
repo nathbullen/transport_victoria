@@ -326,7 +326,8 @@ def _clean_title(title, route_name):
     colon = lower.find(":")
     if colon != -1:
         prefix = lower[:colon].strip()
-        if prefix.startswith(rn_lower) and (" line" in prefix or " lines" in prefix):
+        # If the pre-colon prefix mentions lines and contains the route name, strip it
+        if (" line" in prefix or " lines" in prefix) and (rn_lower in prefix):
             return t[colon+1:].lstrip()
     return t
 
