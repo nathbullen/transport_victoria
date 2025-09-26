@@ -247,10 +247,15 @@ class Connector:
                 ["access"],
                 ["change", "changes", "changed"],
             ]
+            escalator_groups = [
+                ["escalator", "elevator"],
+            ]
 
             def _should_exclude(n):
                 text = f"{n.get('title') or ''} {n.get('description') or ''}"
-                return _text_matches_all_groups(text, carpark_groups) or _text_matches_all_groups(text, pedestrian_groups)
+                return (_text_matches_all_groups(text, carpark_groups) or 
+                        _text_matches_all_groups(text, pedestrian_groups) or
+                        _text_matches_all_groups(text, escalator_groups))
 
             normalised = [n for n in normalised if not _should_exclude(n)]
 
@@ -367,12 +372,11 @@ def _relative_period(from_local, to_local, hass):
 
         start = _label(from_local)
         end = _label(to_local)
-        if start and end:
+        # Only generate relative period if we have both start and end and they're different
+        if start and end and start != end:
             return f"from {start} until {end}"
-        if start:
-            return f"from {start}"
-        if end:
-            return f"until {end}"
+        # Don't generate partial periods for disruptions without clear date ranges
+        return None
     except Exception:
         return None
     return None

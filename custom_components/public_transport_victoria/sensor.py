@@ -204,9 +204,16 @@ class PublicTransportVictoriaDisruptionsDetailSensor(CoordinatorEntity, Entity):
                 title = dis[0].get("title_clean") or raw_title
                 rel = dis[0].get("period_relative") or ""
                 if rel.startswith("from ") and " until " in rel:
-                    # If the title already contains a ' to ...' range, trim it to the left phrase before ' to '
-                    if " to " in title:
-                        title = title.split(" to ", 1)[0]
+                    # Only trim if we detect a clear date range pattern (from X to/until Y)
+                    # Look for patterns like "from [date] to [date]" or "from [date] until [date]"
+                    import re
+                    date_range_pattern = r'from\s+\w+.*?\s+(?:to|until)\s+\w+.*?(?:\s|$)'
+                    if re.search(date_range_pattern, title, re.IGNORECASE):
+                        # Found a date range, trim it
+                        if " until " in title:
+                            title = title.split(" until ", 1)[0]
+                        elif " to " in title:
+                            title = title.split(" to ", 1)[0]
                     until_part = rel.split(" until ", 1)[1]
                     return f"{title} until {until_part}"
                 return f"{title} — {rel}" if rel else title
