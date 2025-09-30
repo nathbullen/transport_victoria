@@ -194,31 +194,37 @@ class PublicTransportVictoriaDisruptionsDetailSensor(CoordinatorEntity, Entity):
     @property
     def state(self):
         # A brief state: first disruption title, else 'No disruptions'
-        data = self.coordinator.data or {}
-        key = "disruptions_current" if self._current else "disruptions_planned"
-        dis = data.get(key) or []
-        if len(dis) > 0:
-            if self._simplified:
-                # Use cleaned title and prefer appending only the 'until ...' tail if present
-                raw_title = dis[0].get("title") or "Disruption"
-                title = dis[0].get("title_clean") or raw_title
-                rel = dis[0].get("period_relative") or ""
-                if rel.startswith("from ") and " until " in rel:
-                    # Only trim if we detect a clear date range pattern (from X to/until Y)
-                    # Look for patterns like "from [date] to [date]" or "from [date] until [date]"
-                    import re
-                    date_range_pattern = r'from\s+\w+.*?\s+(?:to|until)\s+\w+.*?(?:\s|$)'
-                    if re.search(date_range_pattern, title, re.IGNORECASE):
-                        # Found a date range, trim it
-                        if " until " in title:
-                            title = title.split(" until ", 1)[0]
-                        elif " to " in title:
-                            title = title.split(" to ", 1)[0]
-                    until_part = rel.split(" until ", 1)[1]
-                    return f"{title} until {until_part}"
-                return f"{title} — {rel}" if rel else title
-            return dis[0].get("title") or "Disruption"
-        return "No disruptions"
+        try:
+            data = self.coordinator.data or {}
+            key = "disruptions_current" if self._current else "disruptions_planned"
+            dis = data.get(key) or []
+            if len(dis) > 0:
+                if self._simplified:
+                    # Use cleaned title and prefer appending only the 'until ...' tail if present
+                    raw_title = dis[0].get("title") or "Disruption"
+                    title = dis[0].get("title_clean") or raw_title
+                    rel = dis[0].get("period_relative")
+                    if rel is None:
+                        rel = ""
+                    if rel and rel.startswith("from ") and " until " in rel:
+                        # Only trim if we detect a clear date range pattern (from X to/until Y)
+                        # Look for patterns like "from [date] to [date]" or "from [date] until [date]"
+                        import re
+                        date_range_pattern = r'from\s+\w+.*?\s+(?:to|until)\s+\w+.*?(?:\s|$)'
+                        if re.search(date_range_pattern, title, re.IGNORECASE):
+                            # Found a date range, trim it
+                            if " until " in title:
+                                title = title.split(" until ", 1)[0]
+                            elif " to " in title:
+                                title = title.split(" to ", 1)[0]
+                        until_part = rel.split(" until ", 1)[1]
+                        return f"{title} until {until_part}"
+                    return f"{title} — {rel}" if rel else title
+                return dis[0].get("title") or "Disruption"
+            return "No disruptions"
+        except Exception as e:
+            _LOGGER.error("Error in disruption sensor state: %s", e)
+            return "Error"
 
     @property
     def name(self):
