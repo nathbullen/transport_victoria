@@ -218,9 +218,17 @@ class PublicTransportVictoriaDisruptionsDetailSensor(CoordinatorEntity, Entity):
                             elif " to " in title:
                                 title = title.split(" to ", 1)[0]
                         until_part = rel.split(" until ", 1)[1]
-                        return f"{title} until {until_part}"
-                    return f"{title} — {rel}" if rel else title
-                return dis[0].get("title") or "Disruption"
+                        result = f"{title} until {until_part}"
+                    else:
+                        result = f"{title} — {rel}" if rel else title
+                else:
+                    result = dis[0].get("title") or "Disruption"
+                
+                # Truncate to reasonable length for sensor state (max 255 chars)
+                if len(result) > 255:
+                    result = result[:252] + "..."
+                
+                return result
             return "No disruptions"
         except Exception as e:
             _LOGGER.error("Error in disruption sensor state: %s", e)
