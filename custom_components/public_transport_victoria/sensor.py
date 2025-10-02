@@ -200,34 +200,32 @@ class PublicTransportVictoriaDisruptionsDetailSensor(CoordinatorEntity, Entity):
             dis = data.get(key) or []
             if len(dis) > 0:
                 if self._simplified:
-                    # Use cleaned title and prefer appending only the 'until ...' tail if present
                     raw_title = dis[0].get("title") or "Disruption"
                     title = dis[0].get("title_clean") or raw_title
                     rel = dis[0].get("period_relative")
-                    if rel is None:
-                        rel = ""
-                    if rel and rel.startswith("from ") and " until " in rel:
-                        # Only trim if we detect a clear date range pattern (from X to/until Y)
-                        # Look for patterns like "from [date] to [date]" or "from [date] until [date]"
+                    result = title
+                    if rel:
                         import re
                         date_range_pattern = r'from\s+\w+.*?\s+(?:to|until)\s+\w+.*?(?:\s|$)'
-                        if re.search(date_range_pattern, title, re.IGNORECASE):
-                            # Found a date range, trim it
+                        if (rel.startswith("from ") and " until " in rel and
+                                re.search(date_range_pattern, raw_title, re.IGNORECASE)):
                             if " until " in title:
                                 title = title.split(" until ", 1)[0]
                             elif " to " in title:
                                 title = title.split(" to ", 1)[0]
-                        until_part = rel.split(" until ", 1)[1]
-                        result = f"{title} until {until_part}"
-                    else:
-                        result = f"{title} — {rel}" if rel else title
+                                if " from " in title:
+                                    title = title.replace(" from ", " ", 1)
+                            until_part = rel.split(" until ", 1)[1]
+                            result = f"{title} until {until_part}"
+                        else:
+                            result = f"{title} — {rel}"
                 else:
                     result = dis[0].get("title") or "Disruption"
-                
+
                 # Truncate to reasonable length for sensor state (max 255 chars)
                 if len(result) > 255:
                     result = result[:252] + "..."
-                
+
                 return result
             return "No disruptions"
         except Exception as e:

@@ -247,15 +247,36 @@ class Connector:
                 ["access"],
                 ["change", "changes", "changed"],
             ]
-            escalator_groups = [
-                ["escalator", "elevator"],
+            escalator_words = ["escalator", "elevator"]
+            # Keywords that indicate the disruption impacts services beyond pure escalator works
+            service_keywords = [
+                "delay",
+                "train",
+                "tram",
+                "bus",
+                "service",
+                "platform",
+                "power",
+                "outage",
+                "reader",
+                "payment",
+                "eftpos",
+                "top-up",
+                "top up",
+                "myki",
             ]
 
             def _should_exclude(n):
-                text = f"{n.get('title') or ''} {n.get('description') or ''}"
-                return (_text_matches_all_groups(text, carpark_groups) or 
-                        _text_matches_all_groups(text, pedestrian_groups) or
-                        _text_matches_all_groups(text, escalator_groups))
+                combined_text = f"{(n.get('title') or '').lower()} {(n.get('description') or '').lower()}"
+                if (_text_matches_all_groups(combined_text, carpark_groups) or
+                        _text_matches_all_groups(combined_text, pedestrian_groups)):
+                    return True
+
+                if any(word in combined_text for word in escalator_words):
+                    if not any(keyword in combined_text for keyword in service_keywords):
+                        return True
+
+                return False
 
             normalised = [n for n in normalised if not _should_exclude(n)]
 
